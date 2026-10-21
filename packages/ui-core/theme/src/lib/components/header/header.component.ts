@@ -44,6 +44,7 @@ import {
 	UsersOrganizationsService
 } from '@gauzy/ui-core/core';
 import { ALL_EMPLOYEES_SELECTED, NO_EMPLOYEE_SELECTED, QuickActionsComponent } from '@gauzy/ui-core/shared';
+import { canEmployeeTrackTime } from './employee-time-tracking';
 
 @UntilDestroy({ checkProperties: true })
 @Component({
@@ -392,6 +393,8 @@ export class HeaderComponent extends TranslationBaseComponent implements OnInit,
 		// -- Start timer
 		this.registerShortcut(this.defaultShortcuts.startTimer, () => {
 			if (this.timeTrackerService.running) return;
+			// An inactive, archived or deleted employee can no longer track time
+			if (!canEmployeeTrackTime(this.employee)) return;
 			this.timeTrackerService.setTimeLogType(TimeLogType.TRACKED);
 			this.timeTrackerService.openAndStartTimer();
 		});
@@ -1185,7 +1188,7 @@ export class HeaderComponent extends TranslationBaseComponent implements OnInit,
 						{
 							title: this.getTranslation('QUICK_ACTIONS_MENU.START_TIMER'),
 							icon: 'play-circle-outline',
-							hidden: !this.isEmployee || this.isElectron,
+							hidden: !this.isEmployee || this.isElectron || !canEmployeeTrackTime(this.employee),
 							data: {
 								action: this.actions.START_TIMER // -- Start the timer
 							},
