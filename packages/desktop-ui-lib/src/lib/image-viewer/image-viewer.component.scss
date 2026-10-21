@@ -25,6 +25,8 @@
       img {
         width: 100%;
         height: 100%;
+        // Show the whole screenshot (and its loading thumb) instead of cropping it; footer thumbnails keep `cover`.
+        object-fit: contain;
         border-radius: var(--border-radius);
       }
     }
