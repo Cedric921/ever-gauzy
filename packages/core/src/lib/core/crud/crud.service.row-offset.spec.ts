@@ -303,6 +303,18 @@ describe.each([
 		expect(positions(page.items)).toEqual(Array.from({ length: 20 }, (_, index) => 20 + index));
 		expect(page.total).toBe(ROWS);
 	});
+
+	it('answers `paginate` with a page number and no `take` instead of failing on a NaN offset', async () => {
+		// `?skip=2` without `take`: TypeORM pages by its default size of 10, MikroORM keeps the list unbounded.
+		const page = await orm.service.paginate({ ...SCOPED, skip: 2 } as any);
+
+		const expected =
+			ormType === MultiORMEnum.TypeORM
+				? Array.from({ length: 10 }, (_, index) => 10 + index)
+				: Array.from({ length: ROWS }, (_, position) => position);
+		expect(positions(page.items)).toEqual(expected);
+		expect(page.total).toBe(ROWS);
+	});
 });
 
 /**
@@ -341,6 +353,17 @@ describe('CrudService row windows — the MikroORM store call', () => {
 		expect(findAndCount.mock.calls[0][1]).toMatchObject({ offset: 20, limit: 20 });
 		expect(find.mock.calls[0][1]).toMatchObject({ offset: 1, limit: 1 });
 		expect(findAndCount.mock.calls[1][1].offset).toBeUndefined();
+	});
+
+	it('asks the store for no offset when `paginate` gets a page number without `take`', async () => {
+		const findAndCount = jest.spyOn(orm.mikroRepository!, 'findAndCount');
+
+		await orm.service.paginate({ ...SCOPED, skip: 2 } as any);
+		await orm.service.paginate({ ...SCOPED, skip: 2, take: 20 } as any);
+
+		// The offset used to be `undefined * (2 - 1)`, i.e. NaN
+		expect(findAndCount.mock.calls[0][1].offset).toBeUndefined();
+		expect(findAndCount.mock.calls[1][1]).toMatchObject({ offset: 20, limit: 20 });
 	});
 
 	it('bounds the read an empty window issues to a single row', async () => {

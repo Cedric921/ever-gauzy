@@ -931,8 +931,9 @@ export function parseTypeORMFindToMikroOrm<T>(options: LegacyFindManyOptions<any
 		mikroOptions.orderBy = parseOrderOptions(options.order) as OrderDefinition<T>;
 	}
 
-	// Parses TypeORM `skip` option to MikroORM `offset` option
-	if (options && options.skip) {
+	// Parses TypeORM `skip` option to MikroORM `offset` option. A page number only has an offset with a
+	// page size: `skip` sent without a positive `take` gave a NaN offset, so it then states no offset
+	if (options && options.skip && Number(options.take) > 0) {
 		mikroOptions.offset = options.take * (options.skip - 1);
 	}
 

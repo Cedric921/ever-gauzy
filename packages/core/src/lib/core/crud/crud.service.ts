@@ -341,8 +341,12 @@ export abstract class CrudService<T extends BaseEntity> implements ICrudService<
 					// Normalize legacy string-array `relations`/`select` to object form before hitting TypeORM.
 					const typeOrmOptions = parseTypeORMFindOptions(options as FindManyOptions<T>);
 					[items, total] = await this.typeOrmRepository.findAndCount({
+						// The offset uses the same default page size as `take` below: a `skip` sent without
+						// `take` multiplied `undefined` into a NaN offset, which TypeORM rejects
 						skip:
-							typeOrmOptions && typeOrmOptions.skip ? typeOrmOptions.take * (typeOrmOptions.skip - 1) : 0,
+							typeOrmOptions && typeOrmOptions.skip
+								? (typeOrmOptions.take || 10) * (typeOrmOptions.skip - 1)
+								: 0,
 						take: typeOrmOptions && typeOrmOptions.take ? typeOrmOptions.take : 10,
 						...(typeOrmOptions && typeOrmOptions.select ? { select: typeOrmOptions.select } : {}),
 						...(typeOrmOptions && typeOrmOptions.relations ? { relations: typeOrmOptions.relations } : {}),
