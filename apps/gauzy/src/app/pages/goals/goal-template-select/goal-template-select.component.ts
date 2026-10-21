@@ -6,7 +6,6 @@ import {
 	IEmployee,
 	IOrganizationTeam,
 	GoalLevelEnum,
-	KeyResultWeightEnum,
 	KeyResultTypeEnum,
 	IOrganization
 } from '@gauzy/contracts';
@@ -26,6 +25,7 @@ import {
 } from '@gauzy/ui-core/core';
 import { TranslateService } from '@ngx-translate/core';
 import { EditTimeFrameComponent } from '../../../pages/goal-settings/edit-time-frame/edit-time-frame.component';
+import { buildGoalFromTemplate, buildKeyResultFromTemplate, buildKpiFromTemplate } from './goal-template.utils';
 
 @UntilDestroy({ checkProperties: true })
 @Component({
@@ -140,29 +140,9 @@ export class GoalTemplateSelectComponent extends TranslationBaseComponent implem
 		if (!!this.selectedGoalTemplate && this.form.valid) {
 			const formValue = this.form.value;
 
-			const { id: organizationId, tenantId } = this.organization;
-			const goal = {
-				...this.selectedGoalTemplate,
-				...formValue,
-				description: ' ',
-				progress: 0,
-				organizationId,
-				tenantId
-			};
-			goal[
-				this.form.value.level === GoalLevelEnum.EMPLOYEE
-					? 'ownerEmployeeId'
-					: this.form.value.level === GoalLevelEnum.TEAM
-					? 'ownerTeamId'
-					: 'organizationId'
-			] = this.form.value.ownerId;
-
-			const { owner, keyResults, ...goalData } = goal;
-			const newGoal = {
-				...goalData,
-				organizationId,
-				tenantId
-			};
+			// A new goal, key results and KPIs: the template's ids are left out, or the server would save over
+			// those created earlier from the same template
+			const newGoal = buildGoalFromTemplate(this.selectedGoalTemplate, formValue, this.organization);
 
 			try {
 				// Create the goal
@@ -174,14 +154,12 @@ export class GoalTemplateSelectComponent extends TranslationBaseComponent implem
 
 				// Create associated KPIs
 				const kpiPromises = this.selectedGoalTemplate.keyResults.map(async (keyResult) => {
+					let kpiId: string;
 					if (keyResult.type === KeyResultTypeEnum.KPI) {
-						const kpiData = {
-							...keyResult.kpi,
-							organization: this.orgId
-						};
+						const kpiData = buildKpiFromTemplate(keyResult.kpi, this.organization);
 						try {
 							const res = await this.goalSettingsService.createKPI(kpiData);
-							keyResult.kpiId = res?.id;
+							kpiId = res?.id;
 							this.toastrService.success(
 								this.getTranslation('TOASTR.MESSAGE.KPI_CREATED', { name: keyResult.name })
 							);
@@ -190,34 +168,21 @@ export class GoalTemplateSelectComponent extends TranslationBaseComponent implem
 								this.getTranslation('TOASTR.MESSAGE.KPI_CREATION_FAILED', { name: keyResult.name })
 							);
 						}
-						return keyResult;
 					}
-					return keyResult;
+					return { keyResult, kpiId };
 				});
-
-				const KEY_RESULT_DEFAULTS = {
-					description: ' ',
-					progress: 0,
-					status: 'none',
-					weight: KeyResultWeightEnum.DEFAULT
-				};
 
 				// Wait for all KPI promises to complete
 				const updatedKeyResults = await Promise.all(kpiPromises);
 
 				// Prepare Key Results for bulk creation
-				const keyResults = updatedKeyResults.map((keyResult) => {
-					const { kpi, goalId, ...keyResultData } = keyResult;
-					return {
-						...keyResultData,
-						...KEY_RESULT_DEFAULTS,
-						goalId: goalCreated.id,
-						update: keyResult.initialValue,
-						ownerId: this.form.value.ownerId,
-						organizationId,
-						tenantId
-					};
-				});
+				const keyResults = updatedKeyResults.map(({ keyResult, kpiId }) =>
+					buildKeyResultFromTemplate(
+						keyResult,
+						{ goalId: goalCreated.id, ownerId: this.form.value.ownerId, kpiId },
+						this.organization
+					)
+				);
 
 				// Create Key Results in bulk
 				const keyResultsCreated = await this.keyResultService.createBulkKeyResult(keyResults);
