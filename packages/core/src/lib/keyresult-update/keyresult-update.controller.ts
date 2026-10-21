@@ -9,7 +9,9 @@ import {
 	Param,
 	UseGuards,
 	Query,
-	Delete
+	Delete,
+	BadRequestException,
+	HttpException
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { CrudController } from './../core/crud';
@@ -21,6 +23,7 @@ import { CommandBus } from '@nestjs/cqrs';
 import { KeyResultUpdateBulkDeleteCommand } from './commands';
 import { TenantPermissionGuard } from './../shared/guards';
 import { CreateKeyresultUpdateDTO, UpdateKeyresultUpdateDTO } from './dto';
+import { toClientSafeError } from './../core/errors/database-error';
 
 @ApiTags('KeyResultsUpdate')
 @UseGuards(TenantPermissionGuard)
@@ -93,7 +96,12 @@ export class KeyResultUpdateController extends CrudController<KeyResultUpdate> {
 			return await this.keyResultUpdateService.create({ ...entity, id });
 		} catch (error) {
 			console.log(error);
-			return;
+			// Answering `undefined` turned a refused or failed edit into a 202 with an empty body: keep a
+			// deliberate HTTP status (e.g. the ForbiddenException `create()` raises for a cross-tenant write)
+			if (error instanceof HttpException) {
+				throw error;
+			}
+			throw new BadRequestException(toClientSafeError(error));
 		}
 	}
 
