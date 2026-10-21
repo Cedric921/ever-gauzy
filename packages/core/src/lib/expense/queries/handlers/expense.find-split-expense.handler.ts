@@ -1,9 +1,11 @@
-import { EmployeeKindEnum, IPagination, ISplitExpenseOutput } from '@gauzy/contracts';
+import { EmployeeKindEnum, IExpense, IPagination, ISplitExpenseOutput } from '@gauzy/contracts';
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 import { EmployeeService } from '../../../employee/employee.service';
+import { isEmployedDuring } from '../../../employee/employment-period';
 import { ExpenseService } from '../../expense.service';
 import { FindSplitExpenseQuery } from '../expense.find-split-expense.query';
 import { parseFindOptionsRelations } from '../../../core/utils';
+import * as moment from 'moment';
 
 /**
  * Finds the split expense for a given organization.
@@ -75,20 +77,33 @@ export class FindSplitExpenseHandler
 			}
 		});
 
+		// Only the employees working during the month of the expense take a share of it
+		const employeeCountFor = (expense: IExpense): number => {
+			const date = expense.valueDate || expense.createdAt;
+			if (!date) {
+				return orgEmployees.total;
+			}
+			const monthStart = moment(date).startOf('month').toDate();
+			const monthEnd = moment(date).endOf('month').toDate();
+			return orgEmployees.items.filter((employee) => isEmployedDuring(employee, monthStart, monthEnd)).length;
+		};
+
 		//3. Divide the value of the expense found in 1 to the no. of employees found in 2.
-		const splitItems = items.map((e) =>
-			e.splitExpense
-				? {
-						...e,
-						amount: +(
-							e.amount /
-							(orgEmployees.total !== 0 ? orgEmployees.total : 1)
-						).toFixed(2),
-						originalValue: +e.amount,
-						employeeCount: orgEmployees.total
-				  }
-				: e
-		);
+		const splitItems = items.map((e) => {
+			if (!e.splitExpense) {
+				return e;
+			}
+			const employeeCount = employeeCountFor(e);
+			return {
+				...e,
+				amount: +(
+					e.amount /
+					(employeeCount !== 0 ? employeeCount : 1)
+				).toFixed(2),
+				originalValue: +e.amount,
+				employeeCount
+			};
+		});
 
 		return { items: splitItems, total };
 	}

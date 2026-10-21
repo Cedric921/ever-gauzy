@@ -1,6 +1,7 @@
 import { EmployeeKindEnum, IOrganizationRecurringExpenseForEmployeeOutput, IPagination } from '@gauzy/contracts';
 import { IQueryHandler, QueryHandler } from '@nestjs/cqrs';
 import { EmployeeService } from '../../../employee/employee.service';
+import { isEmployedDuring } from '../../../employee/employment-period';
 import { OrganizationService } from '../../../organization/organization.service';
 import { OrganizationRecurringExpenseService } from '../../organization-recurring-expense.service';
 import { OrganizationRecurringExpenseFindSplitExpenseQuery } from '../organization-recurring-expense.find-split-expense.query';
@@ -69,14 +70,19 @@ export class OrganizationRecurringExpenseFindSplitExpenseHandler
 			}
 		});
 
+		// Only the employees working during the month take a share: started work by its end and not ended before its start
+		const employeeCount = orgEmployees.items.filter((employee) =>
+			isEmployedDuring(employee, monthStart, monthEnd)
+		).length;
+
 		//3. Divide the value of the expense found in 1 to the no. of employees found in 2 to 'split' the expense equally for all employees.
 		const splitItems = items.map((e) => ({
 			...e,
 			value: +(
-				e.value / (orgEmployees.total !== 0 ? orgEmployees.total : 1)
+				e.value / (employeeCount !== 0 ? employeeCount : 1)
 			).toFixed(2),
 			originalValue: +e.value,
-			employeeCount: orgEmployees.total
+			employeeCount
 		}));
 
 		return { items: splitItems, total };
