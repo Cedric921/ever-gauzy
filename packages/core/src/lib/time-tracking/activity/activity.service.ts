@@ -72,6 +72,7 @@ export class ActivityService extends TenantAwareCrudService<Activity> {
 				if (isNotEmpty(employeeIds)) {
 					qb = qb.whereIn('activity.employeeId', employeeIds);
 				}
+				qb = this.applyMikroOrmRequestFilters(qb, request);
 
 				qb = qb
 					.groupBy('activity.date')
@@ -172,6 +173,7 @@ export class ActivityService extends TenantAwareCrudService<Activity> {
 				if (isNotEmpty(employeeIds)) {
 					qb = qb.whereIn('activity.employeeId', employeeIds);
 				}
+				qb = this.applyMikroOrmRequestFilters(qb, request);
 
 				let activities = await qb
 					.groupBy('activity.date')
@@ -361,6 +363,32 @@ export class ActivityService extends TenantAwareCrudService<Activity> {
 			return undefined;
 		}
 		return [NO_ACCESSIBLE_EMPLOYEE_ID];
+	}
+
+	/**
+	 * Applies the request's project, type, title and activity-level filters to a MikroORM (raw knex)
+	 * aggregation, as {@link filterQuery} applies them on TypeORM. The knex query must join `time_slot`.
+	 *
+	 * @param qb The knex query over `activity`
+	 * @param request The activities request
+	 * @returns The same knex query, filtered in place
+	 */
+	private applyMikroOrmRequestFilters(qb: any, request: IGetActivitiesInput): any {
+		const { projectIds = [], types, titles, activityLevel } = request;
+		if (isNotEmpty(types)) {
+			qb.whereIn('activity.type', types);
+		}
+		if (isNotEmpty(titles)) {
+			qb.whereIn('activity.title', titles);
+		}
+		if (isNotEmpty(projectIds)) {
+			qb.whereIn('activity.projectId', projectIds);
+		}
+		if (isNotEmpty(activityLevel)) {
+			// Activity Level is 0-100%: a 10 minutes time slot's `overall` is in seconds, so multiply by 6
+			qb.whereBetween('time_slot.overall', [activityLevel.start * 6, activityLevel.end * 6]);
+		}
+		return qb;
 	}
 
 	private filterQuery(request: IGetActivitiesInput): SelectQueryBuilder<Activity> {
