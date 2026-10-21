@@ -115,6 +115,7 @@ import { TimeTrackerStatusService } from './time-tracker-status/time-tracker-sta
 import { IScreenshotUploadContext, TimeTrackerService } from './time-tracker.service';
 import { TimerTrackerChangeDialogComponent } from './timer-tracker-change-dialog/timer-tracker-change-dialog.component';
 import { ICapturedImage, withoutEmptyImages } from './capture-images';
+import { isDeletedTimeSlotError } from './deleted-time-slot';
 
 enum TimerStartMode {
 	MANUAL = 'manual',
@@ -2086,7 +2087,16 @@ export class TimeTrackerComponent implements OnInit, AfterViewInit {
 			const isStale = () =>
 				fromServer && (generation !== this._captureGeneration || this.hasNewerLocalCapture(res));
 			if (!fromServer) {
-				res = await this.timeTrackerService.getTimeSlot({ timeSlotId: lastTimeSlot.timeSlotId });
+				try {
+					res = await this.timeTrackerService.getTimeSlot({ timeSlotId: lastTimeSlot.timeSlotId });
+				} catch (error) {
+					if (!isDeletedTimeSlotError(error)) {
+						throw error;
+					}
+					// Best effort: the last captured slot was deleted on the server (#8349); nothing to show, no error toast.
+					this._loggerService.warn(`WARN: last time slot ${lastTimeSlot.timeSlotId} no longer exists on the server`);
+					return;
+				}
 			} else {
 				// A fresh install has no local capture yet, but the server may still hold this employee's
 				// screenshots (taken before the reinstall or on another machine): show the latest ones
