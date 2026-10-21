@@ -1,7 +1,14 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { WakatimeService, splitDuration } from './wakatime.service';
+import { isMySQL, isPostgres } from '@gauzy/config';
+import { WakatimeService, heartbeatsOfTodayCondition, splitDuration } from './wakatime.service';
 import { MikroOrmWakatimeRepository } from './repository/mikro-orm-wakatime.repository';
 import { TypeOrmWakatimeRepository } from './repository/type-orm-wakatime.repository';
+
+jest.mock('@gauzy/config', () => ({
+	...jest.requireActual('@gauzy/config'),
+	isMySQL: jest.fn(),
+	isPostgres: jest.fn()
+}));
 
 /**
  * The scaffold asked Nest to build the service with no providers at all, which cannot work for a
@@ -74,5 +81,44 @@ describe('WakatimeService.getSummaries', () => {
 
 	it('shows 0:00 when the query returns no row', async () => {
 		expect(await summaryFor([])).toMatchObject({ digital: '0:00', minute: 0, total_seconds: 0 });
+	});
+});
+
+describe('WakatimeService.getSummaries on each database', () => {
+	afterEach(() => {
+		(isMySQL as jest.Mock).mockReset();
+		(isPostgres as jest.Mock).mockReset();
+	});
+
+	// Both repositories capture the SQL, so the test holds whichever ORM (DB_ORM) the service was loaded with
+	const sqlFor = async (): Promise<string> => {
+		const query = jest.fn().mockResolvedValue([{ seconds: 60 }]);
+		const knex = { raw: jest.fn().mockResolvedValue([{ seconds: 60 }]) };
+		const service = new WakatimeService({ query } as any, { getKnex: () => knex } as any);
+		await service.getSummaries({});
+		return (query.mock.calls[0] ?? knex.raw.mock.calls[0])[0];
+	};
+
+	it("keeps SQLite's unixepoch date expression", async () => {
+		expect(heartbeatsOfTodayCondition()).toBe("DATE(time, 'unixepoch') = date('now')");
+		expect(await sqlFor()).toContain("WHERE DATE(time, 'unixepoch') = date('now')");
+	});
+
+	it('uses TO_TIMESTAMP on PostgreSQL, which has no unixepoch modifier', async () => {
+		(isPostgres as jest.Mock).mockReturnValue(true);
+
+		expect(heartbeatsOfTodayCondition()).toBe('DATE(TO_TIMESTAMP(time)) = CURRENT_DATE');
+		const sql = await sqlFor();
+		expect(sql).toContain('WHERE DATE(TO_TIMESTAMP(time)) = CURRENT_DATE');
+		expect(sql).not.toContain('unixepoch');
+	});
+
+	it('uses FROM_UNIXTIME on MySQL', async () => {
+		(isMySQL as jest.Mock).mockReturnValue(true);
+
+		expect(heartbeatsOfTodayCondition()).toBe('DATE(FROM_UNIXTIME(time)) = CURDATE()');
+		const sql = await sqlFor();
+		expect(sql).toContain('WHERE DATE(FROM_UNIXTIME(time)) = CURDATE()');
+		expect(sql).not.toContain('unixepoch');
 	});
 });

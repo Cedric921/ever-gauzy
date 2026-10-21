@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import * as moment from 'moment';
 import { MultiORM, MultiORMEnum, getORMType } from '@gauzy/core';
+import { isMySQL, isPostgres } from '@gauzy/config';
 import { Wakatime } from './wakatime.entity';
 import { TypeOrmWakatimeRepository } from './repository/type-orm-wakatime.repository';
 import { MikroOrmWakatimeRepository } from './repository/mikro-orm-wakatime.repository';
@@ -29,6 +30,22 @@ export function splitDuration(seconds: number | string | null | undefined): {
 	};
 }
 
+/**
+ * The SQL condition matching the heartbeats of the current day, in the dialect of the configured database.
+ *
+ * `time` is a Unix timestamp in seconds. `DATE(time, 'unixepoch')` is SQLite-only: PostgreSQL and MySQL
+ * reject it, so the summary failed there. SQLite keeps its original expression.
+ */
+export function heartbeatsOfTodayCondition(): string {
+	if (isPostgres()) {
+		return 'DATE(TO_TIMESTAMP(time)) = CURRENT_DATE';
+	}
+	if (isMySQL()) {
+		return 'DATE(FROM_UNIXTIME(time)) = CURDATE()';
+	}
+	return "DATE(time, 'unixepoch') = date('now')";
+}
+
 @Injectable()
 export class WakatimeService {
 	constructor(
@@ -43,6 +60,7 @@ export class WakatimeService {
 	 */
 	async getSummaries(params: any): Promise<any> {
 		let result: any[];
+		const today = heartbeatsOfTodayCondition();
 
 		switch (ormType) {
 			case MultiORMEnum.MikroORM: {
@@ -54,7 +72,7 @@ export class WakatimeService {
 					FROM (
 						SELECT COUNT(*) AS seconds
 						FROM heartbeats
-						WHERE DATE(time, 'unixepoch') = date('now')
+						WHERE ${today}
 						GROUP BY entities
 					) t;
 				`
@@ -69,7 +87,7 @@ export class WakatimeService {
 					FROM (
 						SELECT COUNT(*) AS seconds
 						FROM heartbeats
-						WHERE DATE(time, 'unixepoch') = date('now')
+						WHERE ${today}
 						GROUP BY entities
 					) t;
 				`);
