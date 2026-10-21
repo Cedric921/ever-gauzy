@@ -2,6 +2,7 @@ import { BadRequestException, ForbiddenException } from '@nestjs/common';
 import { CommandHandler, ICommandHandler } from '@nestjs/cqrs';
 import { DeleteResult } from 'typeorm';
 import { isNotEmpty } from '@gauzy/utils';
+import { ID } from '@gauzy/contracts';
 import { IncomeService } from '../../income.service';
 import { EmployeeService } from '../../../employee/employee.service';
 import { EmployeeStatisticsService } from '../../../employee-statistics';
@@ -23,7 +24,12 @@ export class IncomeDeleteHandler implements ICommandHandler<IncomeDeleteCommand>
 	 * @throws BadRequestException if there is an error updating employee statistics.
 	 */
 	public async execute(command: IncomeDeleteCommand): Promise<DeleteResult> {
-		const { incomeId, employeeId } = command;
+		const { incomeId } = command;
+		// The `employeeId` query parameter is optional: without it, take the employee from the stored income
+		// (read before it is deleted) so that employee's averages are still refreshed.
+		const employeeId = isNotEmpty(command.employeeId)
+			? command.employeeId
+			: await this.findStoredEmployeeId(incomeId);
 		// Delete the income
 		const result = await this.deleteIncome(incomeId);
 
@@ -46,6 +52,22 @@ export class IncomeDeleteHandler implements ICommandHandler<IncomeDeleteCommand>
 		}
 
 		return result;
+	}
+
+	/**
+	 * Reads the employee of the stored income, within the tenant scope the service applies.
+	 *
+	 * @param incomeId - The ID of the income about to be deleted
+	 * @returns The employee ID, or undefined when the income has none or cannot be read
+	 */
+	private async findStoredEmployeeId(incomeId: ID): Promise<ID | undefined> {
+		try {
+			const income = await this.incomeService.findOneByIdString(incomeId);
+			return income?.employeeId;
+		} catch {
+			// The delete itself decides what a missing or foreign income answers
+			return undefined;
+		}
 	}
 
 	/**

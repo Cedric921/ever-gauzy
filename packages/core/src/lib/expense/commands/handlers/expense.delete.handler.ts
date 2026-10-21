@@ -24,7 +24,12 @@ export class ExpenseDeleteHandler implements ICommandHandler<ExpenseDeleteComman
 	 * @throws BadRequestException if there is an error updating employee average expenses.
 	 */
 	public async execute(command: ExpenseDeleteCommand): Promise<DeleteResult> {
-		const { expenseId, employeeId } = command;
+		const { expenseId } = command;
+		// The `employeeId` query parameter is optional: without it, take the employee from the stored expense
+		// (read before it is deleted) so that employee's average expenses are still refreshed.
+		const employeeId = isNotEmpty(command.employeeId)
+			? command.employeeId
+			: await this.findStoredEmployeeId(expenseId);
 		// Delete the expense by ID
 		const result = await this.deleteExpense(expenseId);
 
@@ -45,6 +50,22 @@ export class ExpenseDeleteHandler implements ICommandHandler<ExpenseDeleteComman
 		}
 
 		return result;
+	}
+
+	/**
+	 * Reads the employee of the stored expense, within the tenant scope the service applies.
+	 *
+	 * @param expenseId - The ID of the expense about to be deleted
+	 * @returns The employee ID, or undefined when the expense has none or cannot be read
+	 */
+	private async findStoredEmployeeId(expenseId: ID): Promise<ID | undefined> {
+		try {
+			const expense = await this.expenseService.findOneByIdString(expenseId);
+			return expense?.employeeId;
+		} catch {
+			// The delete itself decides what a missing or foreign expense answers
+			return undefined;
+		}
 	}
 
 	/**
